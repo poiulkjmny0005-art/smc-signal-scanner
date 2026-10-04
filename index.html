@@ -270,6 +270,7 @@ async function scanAll(){
 $('#scan').onclick=scanAll;
 $('#stop').onclick=()=>{stopRequested=true; $('#scanStatus').textContent='正在停止，會在目前批次完成後結束...'};
 $('#search').oninput=render; $('#sideFilter').onchange=render; $('#minScore').onchange=render; $('#tf').onchange=()=>{$('#scanStatus').textContent='週期已變更，請重新掃描'};
-jget(`${API}/api/exchangeInfo`,4).then(ex=>{const n=ex.symbols.filter(x=>x.status==='TRADING'&&x.contractType==='PERPETUAL'&&x.quoteAsset==='USDT').length;$('#kSymbols').textContent=n;$('#scanStatus').textContent='已連線 · WebSocket 高速預篩模式，按「開始全幣種掃描」'}).catch(e=>{$('#kSymbols').textContent='API';$('#scanStatus').textContent=`後端/API 尚未就緒：${e.message}`});
+$('#kSymbols').textContent='—';
+$('#scanStatus').textContent='WebSocket 高速預篩模式已就緒，按「開始全幣種掃描」';
 </script>
 </body></html>
