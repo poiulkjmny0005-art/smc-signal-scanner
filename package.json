@@ -1,7 +1,7 @@
 {
-  "name": "smc-signal-scanner",
-  "version": "1.0.0",
+  "name": "smc-signal-scanner-safe",
+  "version": "2.0.0",
   "private": true,
-  "scripts": {"start": "node server.js"},
-  "engines": {"node": ">=18"}
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
 }

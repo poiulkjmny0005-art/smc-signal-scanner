@@ -18,7 +18,7 @@
     <div class="controls">
       <select id="tf" class="select"><option value="5m">5M</option><option value="15m" selected>15M</option><option value="30m">30M</option><option value="1h">1H</option><option value="4h">4H</option></select>
       <select id="minScore" class="select"><option value="55">55+ 分</option><option value="65" selected>65+ 分</option><option value="75">75+ 分</option><option value="85">85+ 分</option></select>
-      <button id="scan" class="btn primary">開始全幣種掃描</button>
+      <button id="scan" class="btn primary">開始全幣種掃描</button><button id="stop" class="btn" disabled>停止</button>
     </div>
   </div>
 
@@ -50,7 +50,7 @@
 </div>
 <script>
 const API='';
-let allSignals=[], allSymbols=[];
+let allSignals=[], allSymbols=[], stopRequested=false;
 const $=s=>document.querySelector(s);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const fmt=n=>{if(!Number.isFinite(n))return '—'; const a=Math.abs(n); return a>=1000?n.toLocaleString(undefined,{maximumFractionDigits:2}):a>=1?n.toFixed(4).replace(/0+$/,'').replace(/\.$/,''):n.toPrecision(5)};
@@ -135,9 +135,11 @@ function analyze(symbol,c){
 }
 
 async function loadSymbols(){
-  const [ex,tickers]=await Promise.all([jget(`${API}/api/exchangeInfo`),jget(`${API}/api/ticker24hr`)]);
-  const vol=new Map(tickers.map(x=>[x.symbol,+x.quoteVolume||0]));
-  allSymbols=ex.symbols.filter(x=>x.status==='TRADING'&&x.contractType==='PERPETUAL'&&x.quoteAsset==='USDT').map(x=>({symbol:x.symbol,volume:vol.get(x.symbol)||0})).sort((a,b)=>b.volume-a.volume);
+  // 安全模式：只抓 exchangeInfo，不再呼叫無 symbol 的 ticker/24hr（該端點權重較高）。
+  const ex=await jget(`${API}/api/exchangeInfo`,5);
+  allSymbols=ex.symbols
+    .filter(x=>x.status==='TRADING'&&x.contractType==='PERPETUAL'&&x.quoteAsset==='USDT')
+    .map(x=>({symbol:x.symbol}));
   $('#kSymbols').textContent=allSymbols.length;
   return allSymbols;
 }
@@ -157,26 +159,45 @@ function render(){
 function showDetail(x){if(!x)return; $('#detail').innerHTML=`<h2>${x.symbol}</h2><div class="side ${x.dir==='BUY'?'buy':'sell'}">${x.dir} · ${x.score} 分</div><div class="muted">${$('#tf').value.toUpperCase()} · ${tstr(x.time)} · ${x.structure}</div><div class="grid2"><div class="metric"><span class="label">Entry</span><b>${fmt(x.entry)}</b></div><div class="metric"><span class="label">Stop Loss</span><b>${fmt(x.sl)}</b></div><div class="metric"><span class="label">TP1 · 1R</span><b>${fmt(x.tp1)}</b></div><div class="metric"><span class="label">TP2 · 2R</span><b>${fmt(x.tp2)}</b></div><div class="metric"><span class="label">TP3 · 3R</span><b>${fmt(x.tp3)}</b></div><div class="metric"><span class="label">Sweep level</span><b>${fmt(x.sweep)}</b></div></div><div class="reason"><strong>成立條件</strong>${x.reasons.map(r=>`<div>✓ ${r}</div>`).join('')}</div><div class="foot">此版本為 SMC 規則型掃描器，訊號用於研究與回測，不代表保證獲利或投資建議。</div>`}
 
 async function scanAll(){
-  const btn=$('#scan'); btn.disabled=true; allSignals=[]; render(); $('#bar').style.width='0%';
+  const btn=$('#scan'), stop=$('#stop');
+  btn.disabled=true; stop.disabled=false; stopRequested=false; allSignals=[]; render(); $('#bar').style.width='0%';
   try{
-    $('#scanStatus').textContent='載入交易對...'; if(!allSymbols.length) await loadSymbols();
-    const tf=$('#tf').value, total=allSymbols.length; let done=0,fail=0,idx=0; const workers=8;
-    $('#scanStatus').textContent=`掃描中 0 / ${total}`;
-    async function worker(){
-      while(idx<total){
-        const item=allSymbols[idx++];
-        try{const c=await fetchCandles(item.symbol,tf); const s=analyze(item.symbol,c); if(s) allSignals.push(s)}catch(e){fail++}
-        done++; if(done%5===0||done===total){$('#bar').style.width=`${(done/total*100).toFixed(1)}%`; $('#scanStatus').textContent=`掃描中 ${done} / ${total}${fail?` · 失敗 ${fail}`:''}`; render()}
-        await sleep(70);
-      }
+    $('#scanStatus').textContent='載入交易對（安全模式）...'; if(!allSymbols.length) await loadSymbols();
+    const tf=$('#tf').value, total=allSymbols.length; let done=0,fail=0,rateHits=0;
+    const batchSize=3; // 每批 3 個，由後端再做全站節流
+    $('#scanStatus').textContent=`安全掃描中 0 / ${total}`;
+
+    for(let start=0; start<total && !stopRequested; start+=batchSize){
+      const batch=allSymbols.slice(start,start+batchSize);
+      const results=await Promise.all(batch.map(async item=>{
+        try{
+          const c=await fetchCandles(item.symbol,tf);
+          return {ok:true, signal:analyze(item.symbol,c)};
+        }catch(e){
+          if(String(e.message).includes('429')||String(e.message).includes('rate')) rateHits++;
+          return {ok:false};
+        }
+      }));
+      for(const r of results){ if(r.ok&&r.signal) allSignals.push(r.signal); if(!r.ok) fail++; done++; }
+      $('#bar').style.width=`${(done/total*100).toFixed(1)}%`;
+      $('#scanStatus').textContent=`安全掃描中 ${done} / ${total}${fail?` · 失敗 ${fail}`:''}${rateHits?` · 限流重試 ${rateHits}`:''}`;
+      render();
+      // 批次間休息，避免 Render 共用出口 IP 瞬間打滿 Binance 權重。
+      if(start+batchSize<total && !stopRequested) await sleep(900);
     }
-    await Promise.all(Array.from({length:workers},worker));
-    $('#scanStatus').textContent=`完成 · ${total} 個交易對 · 找到 ${allSignals.length} 個候選訊號${fail?` · ${fail} 個讀取失敗`:''}`;
+
+    if(stopRequested){
+      $('#scanStatus').textContent=`已停止 · 完成 ${done} / ${total} · 找到 ${allSignals.length} 個候選訊號`;
+    }else{
+      $('#scanStatus').textContent=`完成 · ${total} 個交易對 · 找到 ${allSignals.length} 個候選訊號${fail?` · ${fail} 個讀取失敗`:''}`;
+    }
     render(); if(allSignals.length) showDetail([...allSignals].sort((a,b)=>b.score-a.score)[0]);
   }catch(e){$('#scanStatus').textContent=`錯誤：${e.message}`}
-  finally{btn.disabled=false}
+  finally{btn.disabled=false; stop.disabled=true}
 }
-$('#scan').onclick=scanAll; $('#search').oninput=render; $('#sideFilter').onchange=render; $('#minScore').onchange=render; $('#tf').onchange=()=>{$('#scanStatus').textContent='週期已變更，請重新掃描'};
-loadSymbols().catch(()=>{$('#kSymbols').textContent='API';$('#scanStatus').textContent='後端尚未連線，請用 server.js 啟動此版本'});
+$('#scan').onclick=scanAll;
+$('#stop').onclick=()=>{stopRequested=true; $('#scanStatus').textContent='正在停止，會在目前批次完成後結束...'};
+$('#search').oninput=render; $('#sideFilter').onchange=render; $('#minScore').onchange=render; $('#tf').onchange=()=>{$('#scanStatus').textContent='週期已變更，請重新掃描'};
+loadSymbols().then(()=>{$('#scanStatus').textContent='已連線 · 安全分批模式，按「開始全幣種掃描」'}).catch(e=>{$('#kSymbols').textContent='API';$('#scanStatus').textContent=`後端/API 尚未就緒：${e.message}`});
 </script>
 </body></html>
