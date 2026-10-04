@@ -11,7 +11,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const cache = new Map();
 let queueTail = Promise.resolve();
 let lastRequestAt = 0;
-const MIN_GAP_MS = 140;
+const MIN_GAP_MS = 220;
 
 function send(res, status, body, type='application/json; charset=utf-8', extraHeaders={}) {
   res.writeHead(status, {
@@ -53,7 +53,7 @@ async function binanceFetch(endpoint, retries=3) {
       let r;
       try {
         r = await fetch(BINANCE + endpoint, {
-          headers: { 'User-Agent': 'SMC-Signal-Scanner/4.0' },
+          headers: { 'User-Agent': 'SMC-Signal-Scanner/5.0' },
           signal: controller.signal
         });
       } finally {
@@ -95,7 +95,7 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
 
   if (u.pathname === '/api/status') {
-    return send(res, 200, JSON.stringify({ ok: true, mode: 'websocket-prescreen-v4', minGapMs: MIN_GAP_MS }));
+    return send(res, 200, JSON.stringify({ ok: true, mode: 'browser-universe-v5', minGapMs: MIN_GAP_MS }));
   }
   if (u.pathname === '/api/exchangeInfo') {
     return proxyCached(res, '/fapi/v1/exchangeInfo', 15 * 60 * 1000);
@@ -122,5 +122,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`SMC scanner websocket prescreen v4 running on port ${PORT}`);
+  console.log(`SMC scanner browser universe v5 running on port ${PORT}`);
 });
