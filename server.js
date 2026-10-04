@@ -11,7 +11,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const cache = new Map();
 let queueTail = Promise.resolve();
 let lastRequestAt = 0;
-const MIN_GAP_MS = 180;
+const MIN_GAP_MS = 140;
 
 function send(res, status, body, type='application/json; charset=utf-8', extraHeaders={}) {
   res.writeHead(status, {
@@ -39,7 +39,7 @@ function enqueue(task) {
   return run;
 }
 
-async function binanceFetch(endpoint, retries=5) {
+async function binanceFetch(endpoint, retries=3) {
   return enqueue(async () => {
     const wait = Math.max(0, MIN_GAP_MS - (Date.now() - lastRequestAt));
     if (wait) await sleep(wait);
@@ -48,9 +48,17 @@ async function binanceFetch(endpoint, retries=5) {
     let lastText = '';
     for (let i = 0; i < retries; i++) {
       lastRequestAt = Date.now();
-      const r = await fetch(BINANCE + endpoint, {
-        headers: { 'User-Agent': 'SMC-Signal-Scanner/3.0' }
-      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 12000);
+      let r;
+      try {
+        r = await fetch(BINANCE + endpoint, {
+          headers: { 'User-Agent': 'SMC-Signal-Scanner/4.0' },
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timer);
+      }
       const text = await r.text();
       lastStatus = r.status;
       lastText = text;
@@ -87,14 +95,10 @@ const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
 
   if (u.pathname === '/api/status') {
-    return send(res, 200, JSON.stringify({ ok: true, mode: 'fast-prescreen-v3', minGapMs: MIN_GAP_MS }));
+    return send(res, 200, JSON.stringify({ ok: true, mode: 'websocket-prescreen-v4', minGapMs: MIN_GAP_MS }));
   }
   if (u.pathname === '/api/exchangeInfo') {
     return proxyCached(res, '/fapi/v1/exchangeInfo', 15 * 60 * 1000);
-  }
-  // v3 預篩：只呼叫一次全市場 24h ticker，快取 60 秒。
-  if (u.pathname === '/api/ticker24hr') {
-    return proxyCached(res, '/fapi/v1/ticker/24hr', 60 * 1000);
   }
   if (u.pathname === '/api/klines') {
     const symbol = (u.searchParams.get('symbol') || '').toUpperCase();
@@ -118,5 +122,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`SMC scanner fast prescreen v3 running on port ${PORT}`);
+  console.log(`SMC scanner websocket prescreen v4 running on port ${PORT}`);
 });

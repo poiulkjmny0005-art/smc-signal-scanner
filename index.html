@@ -134,26 +134,78 @@ function analyze(symbol,c){
   return {symbol,dir,score:q.s,price:last.c,entry,sl,tp1:entry+sign*risk,tp2:entry+sign*risk*2,tp3:entry+sign*risk*3,reasons:q.reasons,time:last.ct,fvg:q.fvg,ob:q.ob,structure:q.st?'順勢':'逆勢/轉折',sweep:q.sw?.level};
 }
 
-async function loadSymbols(){
-  const [ex,tickers]=await Promise.all([
-    jget(`${API}/api/exchangeInfo`,5),
-    jget(`${API}/api/ticker24hr`,5)
-  ]);
-  const tradable=new Set(ex.symbols
-    .filter(x=>x.status==='TRADING'&&x.contractType==='PERPETUAL'&&x.quoteAsset==='USDT')
-    .map(x=>x.symbol));
-  const rows=tickers.filter(x=>tradable.has(x.symbol)).map(x=>{
-    const vol=Number(x.quoteVolume)||0;
-    const move=Math.abs(Number(x.priceChangePercent)||0);
-    // 成交額為主、波動為輔，避免只挑到極小幣的高波動。
-    const activity=Math.log10(Math.max(vol,1))*10 + Math.min(move,30)*1.8;
-    return {symbol:x.symbol,vol,move,activity};
-  }).sort((a,b)=>b.activity-a.activity);
-  allSymbols=rows;
-  $('#kSymbols').textContent=allSymbols.length;
-  return allSymbols;
+async function getWsTickers(tradable, collectMs=2600){
+  return new Promise((resolve,reject)=>{
+    const map=new Map();
+    let settled=false;
+    const ws=new WebSocket('wss://fstream.binance.com/ws/!ticker@arr');
+    const finish=()=>{
+      if(settled)return; settled=true;
+      try{ws.close()}catch{}
+      if(map.size<10) reject(new Error('WebSocket 無足夠市場資料'));
+      else resolve([...map.values()]);
+    };
+    const hard=setTimeout(()=>{
+      if(map.size) finish(); else { settled=true; try{ws.close()}catch{}; reject(new Error('WebSocket 連線逾時')); }
+    },7000);
+    ws.onopen=()=>setTimeout(()=>{clearTimeout(hard);finish()},collectMs);
+    ws.onmessage=e=>{
+      try{
+        const arr=JSON.parse(e.data);
+        if(!Array.isArray(arr))return;
+        for(const x of arr){
+          if(x && tradable.has(x.s)) map.set(x.s,x);
+        }
+      }catch{}
+    };
+    ws.onerror=()=>{clearTimeout(hard); if(!settled){settled=true;try{ws.close()}catch{};reject(new Error('WebSocket 連線失敗'));}};
+  });
 }
 
+async function getDirectRestTickers(tradable){
+  const r=await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
+  if(!r.ok) throw new Error(`市場 REST HTTP ${r.status}`);
+  const arr=await r.json();
+  return arr.filter(x=>tradable.has(x.symbol));
+}
+
+async function loadSymbols(){
+  const ex=await jget(`${API}/api/exchangeInfo`,4);
+  const tradableArr=ex.symbols
+    .filter(x=>x.status==='TRADING'&&x.contractType==='PERPETUAL'&&x.quoteAsset==='USDT')
+    .map(x=>x.symbol);
+  const tradable=new Set(tradableArr);
+  $('#kSymbols').textContent=tradableArr.length;
+
+  let tickers=[], source='WebSocket';
+  try{
+    $('#scanStatus').textContent=`已讀到 ${tradableArr.length} 個交易對 · 取得全市場即時活躍度...`;
+    tickers=await getWsTickers(tradable);
+  }catch(wsErr){
+    try{
+      source='瀏覽器直連 REST';
+      $('#scanStatus').textContent=`WebSocket 未完成，改用瀏覽器直連市場資料...`;
+      tickers=await getDirectRestTickers(tradable);
+    }catch(restErr){
+      source='交易對清單備援';
+      tickers=[];
+    }
+  }
+
+  const tickerMap=new Map(tickers.map(x=>[x.symbol||x.s,x]));
+  const major=['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','LINKUSDT','AVAXUSDT','SUIUSDT','LTCUSDT','TRXUSDT','DOTUSDT','AAVEUSDT','UNIUSDT','BCHUSDT','APTUSDT','NEARUSDT','ETCUSDT','FILUSDT'];
+  const majorRank=new Map(major.map((s,i)=>[s,major.length-i]));
+  const rows=tradableArr.map(symbol=>{
+    const x=tickerMap.get(symbol);
+    const vol=Number(x?.q ?? x?.quoteVolume ?? 0)||0;
+    const move=Math.abs(Number(x?.P ?? x?.priceChangePercent ?? 0)||0);
+    const live=vol>0 ? Math.log10(Math.max(vol,1))*10 + Math.min(move,30)*1.8 : 0;
+    const backup=(majorRank.get(symbol)||0)*100 + (symbol.endsWith('USDT')?1:0);
+    return {symbol,vol,move,activity: live || backup, hasTicker:!!x};
+  }).sort((a,b)=>b.activity-a.activity);
+  allSymbols=rows;
+  return {rows,source,tickerCount:tickers.length};
+}
 async function fetchCandles(symbol,tf){
   const a=await jget(`${API}/api/klines?symbol=${encodeURIComponent(symbol)}&interval=${tf}&limit=80`);
   return a.map(x=>({t:x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4],v:+x[5],ct:x[6]}));
@@ -173,15 +225,15 @@ async function scanAll(){
   const btn=$('#scan'), stop=$('#stop');
   btn.disabled=true; stop.disabled=false; stopRequested=false; allSignals=[]; render(); $('#bar').style.width='0%';
   try{
-    $('#scanStatus').textContent='快速讀取全市場活躍度...';
-    await loadSymbols();
+    $('#scanStatus').textContent='讀取交易對清單...';
+    const market=await loadSymbols();
     const tf=$('#tf').value;
     const universe=allSymbols.length;
     const targetCount=Math.min(80, universe);
     const candidates=allSymbols.slice(0,targetCount);
     let done=0,fail=0,rateHits=0;
     const concurrency=6;
-    $('#scanStatus').textContent=`預篩完成 ${universe} 幣 → 深度掃描前 ${targetCount} 幣 · 0 / ${targetCount}`;
+    $('#scanStatus').textContent=`${market.source} 預篩完成 ${universe} 幣（即時 ticker ${market.tickerCount}）→ 深掃前 ${targetCount} 幣 · 0 / ${targetCount}`;
 
     let cursor=0;
     async function worker(){
@@ -204,7 +256,7 @@ async function scanAll(){
         }finally{
           done++;
           $('#bar').style.width=`${(done/targetCount*100).toFixed(1)}%`;
-          $('#scanStatus').textContent=`高速掃描 ${done} / ${targetCount}（全市場 ${universe} 幣已預篩）${fail?` · 失敗 ${fail}`:''}${rateHits?` · 限流 ${rateHits}`:''}`;
+          $('#scanStatus').textContent=`高速掃描 ${done} / ${targetCount}（${market.source} 預篩 ${universe} 幣）${fail?` · 失敗 ${fail}`:''}${rateHits?` · 限流 ${rateHits}`:''}`;
           render();
         }
       }
@@ -214,7 +266,7 @@ async function scanAll(){
     if(stopRequested){
       $('#scanStatus').textContent=`已停止 · 完成 ${done} / ${targetCount} · 找到 ${allSignals.length} 個候選訊號`;
     }else{
-      $('#scanStatus').textContent=`完成 · 全市場 ${universe} 幣預篩 → 前 ${targetCount} 幣 SMC 深掃 · 找到 ${allSignals.length} 個候選訊號${fail?` · ${fail} 個讀取失敗`:''}`;
+      $('#scanStatus').textContent=`完成 · ${market.source} 預篩 ${universe} 幣 → 前 ${targetCount} 幣 SMC 深掃 · 找到 ${allSignals.length} 個候選訊號${fail?` · ${fail} 個讀取失敗`:''}`;
     }
     render(); if(allSignals.length) showDetail([...allSignals].sort((a,b)=>b.score-a.score)[0]);
   }catch(e){$('#scanStatus').textContent=`錯誤：${e.message}`}
@@ -223,6 +275,6 @@ async function scanAll(){
 $('#scan').onclick=scanAll;
 $('#stop').onclick=()=>{stopRequested=true; $('#scanStatus').textContent='正在停止，會在目前批次完成後結束...'};
 $('#search').oninput=render; $('#sideFilter').onchange=render; $('#minScore').onchange=render; $('#tf').onchange=()=>{$('#scanStatus').textContent='週期已變更，請重新掃描'};
-loadSymbols().then(()=>{$('#scanStatus').textContent='已連線 · 高速預篩模式，按「開始全幣種掃描」'}).catch(e=>{$('#kSymbols').textContent='API';$('#scanStatus').textContent=`後端/API 尚未就緒：${e.message}`});
+jget(`${API}/api/exchangeInfo`,4).then(ex=>{const n=ex.symbols.filter(x=>x.status==='TRADING'&&x.contractType==='PERPETUAL'&&x.quoteAsset==='USDT').length;$('#kSymbols').textContent=n;$('#scanStatus').textContent='已連線 · WebSocket 高速預篩模式，按「開始全幣種掃描」'}).catch(e=>{$('#kSymbols').textContent='API';$('#scanStatus').textContent=`後端/API 尚未就緒：${e.message}`});
 </script>
 </body></html>
