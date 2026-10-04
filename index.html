@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>SMC 全幣種交易訊號掃描器</title>
+<style>
+:root{--bg:#081018;--panel:#0f1924;--panel2:#111f2c;--line:#223344;--text:#e8f0f7;--muted:#8fa3b6;--green:#38d39f;--red:#ff6b7a;--yellow:#f0c85a;--blue:#64a8ff;--shadow:0 14px 40px rgba(0,0,0,.28)}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 0%,#102337 0,transparent 34%),var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.wrap{max-width:1500px;margin:auto;padding:18px}.top{display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:14px}.brand h1{font-size:22px;margin:0}.brand p{margin:2px 0 0;color:var(--muted)}.controls{display:flex;gap:8px;flex-wrap:wrap}.btn,.select,.input{border:1px solid var(--line);background:#0c1620;color:var(--text);border-radius:10px;padding:10px 12px}.btn{cursor:pointer;font-weight:700}.btn.primary{background:#113a33;border-color:#1c7a62;color:#bafbe7}.btn:disabled{opacity:.55;cursor:not-allowed}.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}.card{background:linear-gradient(180deg,var(--panel),#0b151f);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:var(--shadow)}.kpi{font-size:23px;font-weight:800}.label{color:var(--muted);font-size:12px}.layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:12px}.panel{background:rgba(13,23,33,.96);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)}.panelhead{padding:12px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:8px}.panelhead strong{font-size:15px}.status{color:var(--muted);font-size:12px}.progress{height:4px;background:#152331;overflow:hidden}.progress>div{height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--green));transition:width .2s}.tablewrap{overflow:auto;max-height:calc(100vh - 260px)}table{width:100%;border-collapse:collapse;min-width:1050px}th,td{padding:11px 10px;border-bottom:1px solid #172737;text-align:left;white-space:nowrap}th{position:sticky;top:0;background:#0e1924;color:#93a9bd;font-size:11px;text-transform:uppercase;letter-spacing:.04em;z-index:2}tbody tr{cursor:pointer}tbody tr:hover{background:#112333}.coin{font-weight:800}.side{font-weight:900}.buy{color:var(--green)}.sell{color:var(--red)}.wait{color:var(--muted)}.score{font-weight:800}.badge{display:inline-block;border:1px solid #2b4256;background:#132232;color:#aac1d4;border-radius:999px;padding:2px 7px;margin:1px;font-size:11px}.detail{padding:14px}.detail h2{margin:0 0 4px;font-size:20px}.muted{color:var(--muted)}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.metric{padding:10px;border-radius:10px;background:#0b1620;border:1px solid #1b2e40}.metric b{display:block;font-size:15px;margin-top:2px}.reason{margin-top:12px}.reason div{padding:7px 0;border-bottom:1px dashed #23394c}.foot{color:#748a9d;font-size:11px;margin-top:12px}.empty{padding:36px 20px;text-align:center;color:var(--muted)}.searchrow{display:flex;gap:8px;align-items:center}.input{width:180px}.tiny{font-size:11px;color:var(--muted)}
+@media(max-width:900px){.cards{grid-template-columns:1fr 1fr}.layout{grid-template-columns:1fr}.tablewrap{max-height:58vh}.detailpanel{order:-1}.input{width:130px}}
+@media(max-width:520px){.wrap{padding:10px}.cards{gap:7px}.card{padding:10px}.kpi{font-size:19px}.brand h1{font-size:18px}.controls{width:100%}.controls>*{flex:1}.searchrow{width:100%}.input{flex:1;width:auto}.detailpanel{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><h1>SMC 全幣種交易訊號掃描器</h1><p>Binance USDT-M 永續合約 · Liquidity Sweep / CHoCH / BOS / FVG / OB</p></div>
+    <div class="controls">
+      <select id="tf" class="select"><option value="5m">5M</option><option value="15m" selected>15M</option><option value="30m">30M</option><option value="1h">1H</option><option value="4h">4H</option></select>
+      <select id="minScore" class="select"><option value="55">55+ 分</option><option value="65" selected>65+ 分</option><option value="75">75+ 分</option><option value="85">85+ 分</option></select>
+      <button id="scan" class="btn primary">開始全幣種掃描</button>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="label">交易對</div><div id="kSymbols" class="kpi">—</div></div>
+    <div class="card"><div class="label">BUY 訊號</div><div id="kBuy" class="kpi buy">0</div></div>
+    <div class="card"><div class="label">SELL 訊號</div><div id="kSell" class="kpi sell">0</div></div>
+    <div class="card"><div class="label">高分訊號 ≥ 80</div><div id="kStrong" class="kpi">0</div></div>
+  </div>
+
+  <div class="layout">
+    <section class="panel">
+      <div class="panelhead">
+        <div><strong>即時訊號清單</strong><div id="scanStatus" class="status">尚未掃描</div></div>
+        <div class="searchrow"><input id="search" class="input" placeholder="搜尋 BTC / ETH..."><select id="sideFilter" class="select"><option value="ALL">全部</option><option value="BUY">BUY</option><option value="SELL">SELL</option></select></div>
+      </div>
+      <div class="progress"><div id="bar"></div></div>
+      <div class="tablewrap">
+        <table><thead><tr><th>幣種</th><th>訊號</th><th>分數</th><th>價格</th><th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th><th>TP3</th><th>SMC 條件</th><th>時間</th></tr></thead><tbody id="rows"></tbody></table>
+        <div id="empty" class="empty">按「開始全幣種掃描」讀取市場資料。</div>
+      </div>
+    </section>
+
+    <aside class="panel detailpanel">
+      <div class="panelhead"><strong>訊號詳情</strong><span class="tiny">點選左側訊號</span></div>
+      <div id="detail" class="detail"><div class="empty">尚未選擇訊號</div></div>
+    </aside>
+  </div>
+</div>
+<script>
+const API='';
+let allSignals=[], allSymbols=[];
+const $=s=>document.querySelector(s);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const fmt=n=>{if(!Number.isFinite(n))return '—'; const a=Math.abs(n); return a>=1000?n.toLocaleString(undefined,{maximumFractionDigits:2}):a>=1?n.toFixed(4).replace(/0+$/,'').replace(/\.$/,''):n.toPrecision(5)};
+const tstr=ms=>new Date(ms).toLocaleString('zh-TW',{hour12:false,month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+
+async function jget(url,retries=3){
+  for(let i=0;i<retries;i++){
+    const r=await fetch(url);
+    if(r.status===429||r.status===418){await sleep(1200*(i+1));continue}
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  }
+  throw new Error('API rate limit');
+}
+
+function pivots(c,left=2,right=2){
+  const highs=[],lows=[];
+  for(let i=left;i<c.length-right;i++){
+    let ph=true,pl=true;
+    for(let k=1;k<=left;k++){if(c[i].h<=c[i-k].h) ph=false;if(c[i].l>=c[i-k].l) pl=false}
+    for(let k=1;k<=right;k++){if(c[i].h<=c[i+k].h) ph=false;if(c[i].l>=c[i+k].l) pl=false}
+    if(ph) highs.push({i,p:c[i].h,t:c[i].t}); if(pl) lows.push({i,p:c[i].l,t:c[i].t});
+  }
+  return {highs,lows};
+}
+
+function findFvg(c,dir){
+  for(let i=c.length-2;i>=Math.max(2,c.length-24);i--){
+    if(dir==='BUY' && c[i].l>c[i-2].h) return {lo:c[i-2].h,hi:c[i].l,i};
+    if(dir==='SELL'&& c[i].h<c[i-2].l) return {lo:c[i].h,hi:c[i-2].l,i};
+  } return null;
+}
+function findOB(c,dir){
+  const bodies=c.slice(-25).map(x=>Math.abs(x.c-x.o)); const avg=bodies.reduce((a,b)=>a+b,0)/(bodies.length||1);
+  for(let i=c.length-3;i>=Math.max(2,c.length-22);i--){
+    const x=c[i],n=c[i+1], disp=Math.abs(n.c-n.o)>avg*1.15;
+    if(dir==='BUY'&&x.c<x.o&&n.c>n.o&&disp) return {lo:x.l,hi:x.h,i};
+    if(dir==='SELL'&&x.c>x.o&&n.c<n.o&&disp) return {lo:x.l,hi:x.h,i};
+  } return null;
+}
+function nearZone(price,z,pct=.006){return z&&price>=z.lo*(1-pct)&&price<=z.hi*(1+pct)}
+
+function analyze(symbol,c){
+  if(c.length<55)return null;
+  const closed=c.filter(x=>x.ct<Date.now()); if(closed.length<50)return null;
+  const p=pivots(closed), last=closed[closed.length-1];
+  const recentH=p.highs.filter(x=>x.i<closed.length-2).slice(-4), recentL=p.lows.filter(x=>x.i<closed.length-2).slice(-4);
+  if(recentH.length<2||recentL.length<2)return null;
+  let bullSweep=null,bearSweep=null;
+  for(let i=Math.max(5,closed.length-14);i<closed.length;i++){
+    const priorL=[...p.lows].reverse().find(x=>x.i<i-1), priorH=[...p.highs].reverse().find(x=>x.i<i-1);
+    if(priorL&&closed[i].l<priorL.p&&closed[i].c>priorL.p) bullSweep={i,level:priorL.p,wick:closed[i].l};
+    if(priorH&&closed[i].h>priorH.p&&closed[i].c<priorH.p) bearSweep={i,level:priorH.p,wick:closed[i].h};
+  }
+  const lastH=recentH[recentH.length-1],prevH=recentH[recentH.length-2],lastL=recentL[recentL.length-1],prevL=recentL[recentL.length-2];
+  const bullStructure=lastH.p>prevH.p&&lastL.p>prevL.p, bearStructure=lastH.p<prevH.p&&lastL.p<prevL.p;
+  const bullBreak=last.c>lastH.p, bearBreak=last.c<lastL.p;
+  const bullChoch=!!bullSweep && closed.slice(bullSweep.i+1).some(x=>x.c>lastH.p);
+  const bearChoch=!!bearSweep && closed.slice(bearSweep.i+1).some(x=>x.c<lastL.p);
+  const buyFvg=findFvg(closed,'BUY'),sellFvg=findFvg(closed,'SELL'),buyOb=findOB(closed,'BUY'),sellOb=findOB(closed,'SELL');
+  function score(dir){
+    let s=0, reasons=[];
+    const sw=dir==='BUY'?bullSweep:bearSweep, choch=dir==='BUY'?bullChoch:bearChoch, br=dir==='BUY'?bullBreak:bearBreak, st=dir==='BUY'?bullStructure:bearStructure, fvg=dir==='BUY'?buyFvg:sellFvg, ob=dir==='BUY'?buyOb:sellOb;
+    if(sw){s+=30;reasons.push('Liquidity Sweep')}
+    if(choch){s+=25;reasons.push('CHoCH')}
+    if(br){s+=10;reasons.push('BOS')}
+    if(st){s+=10;reasons.push('Structure')}
+    if(fvg){s+=10;reasons.push('FVG')}
+    if(ob){s+=8;reasons.push('Order Block')}
+    if(nearZone(last.c,fvg)){s+=4;reasons.push('FVG 回踩')}
+    if(nearZone(last.c,ob)){s+=3;reasons.push('OB 回踩')}
+    return {s:Math.min(100,s),reasons,sw,fvg,ob,choch,br,st};
+  }
+  const B=score('BUY'),S=score('SELL'); const dir=B.s===S.s?(bullStructure?'BUY':bearStructure?'SELL':(B.s>=S.s?'BUY':'SELL')):(B.s>S.s?'BUY':'SELL'); const q=dir==='BUY'?B:S;
+  if(q.s<45)return null;
+  const entry=last.c; let sl;
+  if(dir==='BUY') sl=Math.min(q.sw?.wick??Infinity,lastL.p,q.ob?.lo??Infinity); else sl=Math.max(q.sw?.wick??-Infinity,lastH.p,q.ob?.hi??-Infinity);
+  if(!Number.isFinite(sl)||sl===entry) sl=dir==='BUY'?entry*.99:entry*1.01;
+  const risk=Math.abs(entry-sl); if(!risk)return null;
+  const sign=dir==='BUY'?1:-1;
+  return {symbol,dir,score:q.s,price:last.c,entry,sl,tp1:entry+sign*risk,tp2:entry+sign*risk*2,tp3:entry+sign*risk*3,reasons:q.reasons,time:last.ct,fvg:q.fvg,ob:q.ob,structure:q.st?'順勢':'逆勢/轉折',sweep:q.sw?.level};
+}
+
+async function loadSymbols(){
+  const [ex,tickers]=await Promise.all([jget(`${API}/api/exchangeInfo`),jget(`${API}/api/ticker24hr`)]);
+  const vol=new Map(tickers.map(x=>[x.symbol,+x.quoteVolume||0]));
+  allSymbols=ex.symbols.filter(x=>x.status==='TRADING'&&x.contractType==='PERPETUAL'&&x.quoteAsset==='USDT').map(x=>({symbol:x.symbol,volume:vol.get(x.symbol)||0})).sort((a,b)=>b.volume-a.volume);
+  $('#kSymbols').textContent=allSymbols.length;
+  return allSymbols;
+}
+async function fetchCandles(symbol,tf){
+  const a=await jget(`${API}/api/klines?symbol=${encodeURIComponent(symbol)}&interval=${tf}&limit=80`);
+  return a.map(x=>({t:x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4],v:+x[5],ct:x[6]}));
+}
+
+function render(){
+  const min=+$('#minScore').value, side=$('#sideFilter').value, q=$('#search').value.trim().toUpperCase();
+  const list=allSignals.filter(x=>x.score>=min&&(side==='ALL'||x.dir===side)&&(!q||x.symbol.includes(q))).sort((a,b)=>b.score-a.score||b.time-a.time);
+  $('#rows').innerHTML=list.map((x,i)=>`<tr data-sym="${x.symbol}" data-dir="${x.dir}"><td class="coin">${x.symbol.replace('USDT','')}<span class="muted">/USDT</span></td><td class="side ${x.dir==='BUY'?'buy':'sell'}">${x.dir}</td><td class="score">${x.score}</td><td>${fmt(x.price)}</td><td>${fmt(x.entry)}</td><td>${fmt(x.sl)}</td><td>${fmt(x.tp1)}</td><td>${fmt(x.tp2)}</td><td>${fmt(x.tp3)}</td><td>${x.reasons.map(r=>`<span class="badge">${r}</span>`).join('')}</td><td>${tstr(x.time)}</td></tr>`).join('');
+  $('#empty').style.display=list.length?'none':'block';
+  document.querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>showDetail(allSignals.find(x=>x.symbol===tr.dataset.sym&&x.dir===tr.dataset.dir)));
+  $('#kBuy').textContent=allSignals.filter(x=>x.dir==='BUY'&&x.score>=min).length; $('#kSell').textContent=allSignals.filter(x=>x.dir==='SELL'&&x.score>=min).length; $('#kStrong').textContent=allSignals.filter(x=>x.score>=80).length;
+}
+function showDetail(x){if(!x)return; $('#detail').innerHTML=`<h2>${x.symbol}</h2><div class="side ${x.dir==='BUY'?'buy':'sell'}">${x.dir} · ${x.score} 分</div><div class="muted">${$('#tf').value.toUpperCase()} · ${tstr(x.time)} · ${x.structure}</div><div class="grid2"><div class="metric"><span class="label">Entry</span><b>${fmt(x.entry)}</b></div><div class="metric"><span class="label">Stop Loss</span><b>${fmt(x.sl)}</b></div><div class="metric"><span class="label">TP1 · 1R</span><b>${fmt(x.tp1)}</b></div><div class="metric"><span class="label">TP2 · 2R</span><b>${fmt(x.tp2)}</b></div><div class="metric"><span class="label">TP3 · 3R</span><b>${fmt(x.tp3)}</b></div><div class="metric"><span class="label">Sweep level</span><b>${fmt(x.sweep)}</b></div></div><div class="reason"><strong>成立條件</strong>${x.reasons.map(r=>`<div>✓ ${r}</div>`).join('')}</div><div class="foot">此版本為 SMC 規則型掃描器，訊號用於研究與回測，不代表保證獲利或投資建議。</div>`}
+
+async function scanAll(){
+  const btn=$('#scan'); btn.disabled=true; allSignals=[]; render(); $('#bar').style.width='0%';
+  try{
+    $('#scanStatus').textContent='載入交易對...'; if(!allSymbols.length) await loadSymbols();
+    const tf=$('#tf').value, total=allSymbols.length; let done=0,fail=0,idx=0; const workers=8;
+    $('#scanStatus').textContent=`掃描中 0 / ${total}`;
+    async function worker(){
+      while(idx<total){
+        const item=allSymbols[idx++];
+        try{const c=await fetchCandles(item.symbol,tf); const s=analyze(item.symbol,c); if(s) allSignals.push(s)}catch(e){fail++}
+        done++; if(done%5===0||done===total){$('#bar').style.width=`${(done/total*100).toFixed(1)}%`; $('#scanStatus').textContent=`掃描中 ${done} / ${total}${fail?` · 失敗 ${fail}`:''}`; render()}
+        await sleep(70);
+      }
+    }
+    await Promise.all(Array.from({length:workers},worker));
+    $('#scanStatus').textContent=`完成 · ${total} 個交易對 · 找到 ${allSignals.length} 個候選訊號${fail?` · ${fail} 個讀取失敗`:''}`;
+    render(); if(allSignals.length) showDetail([...allSignals].sort((a,b)=>b.score-a.score)[0]);
+  }catch(e){$('#scanStatus').textContent=`錯誤：${e.message}`}
+  finally{btn.disabled=false}
+}
+$('#scan').onclick=scanAll; $('#search').oninput=render; $('#sideFilter').onchange=render; $('#minScore').onchange=render; $('#tf').onchange=()=>{$('#scanStatus').textContent='週期已變更，請重新掃描'};
+loadSymbols().catch(()=>{$('#kSymbols').textContent='API';$('#scanStatus').textContent='後端尚未連線，請用 server.js 啟動此版本'});
+</script>
+</body></html>
