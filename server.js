@@ -4,7 +4,7 @@ const path = require('path');
 const { URL } = require('url');
 
 const PORT = process.env.PORT || 3000;
-const PUBLIC = path.join(__dirname, 'public');
+const PUBLIC = __dirname;
 const BINANCE = 'https://fapi.binance.com';
 
 function send(res, status, body, type='application/json; charset=utf-8') {
